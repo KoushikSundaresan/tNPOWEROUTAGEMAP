@@ -34,16 +34,46 @@ export default function Dashboard({ data }: { data: PowerOutage[] }) {
     });
   }, [data, selectedDistrict, startDate, endDate]);
 
-  // Aggregate data for the Chart
+  // Aggregate data for the Chart and fill missing days with 0
   const chartData = useMemo(() => {
-    const sorted = [...filteredData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    return sorted.map((d, i) => ({
-      index: i,
-      date: d.date,
-      duration: d.outage_duration_minutes,
-      district: d.district_name
-    }));
-  }, [filteredData]);
+    if (filteredData.length === 0) return [];
+
+    // Extract all dates in the filtered data to find the range boundaries
+    const dates = filteredData.map(d => d.date);
+    const minDateStr = startDate || dates.reduce((min, d) => d < min ? d : min, dates[0]);
+    const maxDateStr = endDate || dates.reduce((max, d) => d > max ? d : max, dates[0]);
+
+    // Parse YYYY-MM-DD in UTC to avoid local timezone shifts
+    const [sYear, sMonth, sDay] = minDateStr.split('-').map(Number);
+    const [eYear, eMonth, eDay] = maxDateStr.split('-').map(Number);
+
+    const start = new Date(Date.UTC(sYear, sMonth - 1, sDay));
+    const end = new Date(Date.UTC(eYear, eMonth - 1, eDay));
+
+    // Aggregate outage duration by date
+    const durationByDate: Record<string, number> = {};
+    filteredData.forEach(d => {
+      durationByDate[d.date] = (durationByDate[d.date] || 0) + d.outage_duration_minutes;
+    });
+
+    // Populate every consecutive date in the range
+    const result = [];
+    let current = new Date(start);
+    let index = 0;
+
+    while (current <= end) {
+      const dateStr = current.toISOString().split('T')[0];
+      result.push({
+        index,
+        date: dateStr,
+        duration: durationByDate[dateStr] || 0,
+      });
+      current.setUTCDate(current.getUTCDate() + 1);
+      index++;
+    }
+
+    return result;
+  }, [filteredData, startDate, endDate]);
 
   const latestUpdate = data.length > 0 ? [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date : "N/A";
 
